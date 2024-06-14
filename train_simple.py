@@ -19,6 +19,7 @@ import time
 import torch
 import torch.nn as nn
 import yaml
+import wandb
 
 from copy import deepcopy
 from datetime import datetime
@@ -462,6 +463,8 @@ def main(opt, callbacks=Callbacks()):
     print_args(vars(opt))
     check_git_status(repo="ircvlab/aue8088-pa2", branch="main")
     check_requirements(ROOT / "requirements.txt")
+
+    wandb.login(key ="277081a38699eac7e601c45a5752e7424b42db34", relogin=True)
 
     opt.data, opt.cfg, opt.hyp, opt.weights, opt.project = (
         check_file(opt.data),
