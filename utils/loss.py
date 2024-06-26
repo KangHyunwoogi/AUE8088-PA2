@@ -163,14 +163,28 @@ class ComputeLoss:
                 if self.gr < 1:
                     iou = (1.0 - self.gr) + self.gr * iou
 
-                # If prediction is matched (iou > 0.5) with bounding box marked as ignore,
-                # do not calculate objectness loss
-                ign_idx = (tcls[i] == -1) & (iou > self.hyp["iou_t"])
-                keep = ~ign_idx
-                b, a, gj, gi, iou = b[keep], a[keep], gj[keep], gi[keep], iou[keep]
+                # # If prediction is matched (iou > 0.5) with bounding box marked as ignore,
+                # # do not calculate objectness loss
+                # ign_idx = (tcls[i] == -1) & (iou > self.hyp["iou_t"])
+                # keep = ~ign_idx
+                # b, a, gj, gi, iou = b[keep], a[keep], gj[keep], gi[keep], iou[keep]
 
-                tobj[b, a, gj, gi] = iou  # iou ratio
+                # tobj[b, a, gj, gi] = iou  # iou ratio
 
+                # Change Loss function 
+                ignore_indices = (tcls[i] == -1).nonzero(as_tuple=True)[0]
+
+                if ignore_indices.size(0) > 0:
+                    iou_selected = iou[ignore_indices]
+                    selected_indices = ignore_indices[iou_selected > 0.3]
+                    
+                    if selected_indices.size(0) > 0:
+                        b_selected = b[selected_indices]
+                        a_selected = a[selected_indices]
+                        gj_selected = gj[selected_indices]
+                        gi_selected = gi[selected_indices]
+                        tobj[b_selected, a_selected, gj_selected, gi_selected] = iou[selected_indices]
+                
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
                     t = torch.full_like(pcls, self.cn, device=self.device)  # targets
