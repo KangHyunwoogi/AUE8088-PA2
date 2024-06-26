@@ -112,6 +112,33 @@ class MultiStreamMaxPool2d(nn.Module):
         return [_layer(_x) for _x, _layer in zip(x, self.pool_layers)]
 
 
+# class SqueezeExcitation(nn.Module):
+#     def __init__(self, in_channels, reduction=16):
+#         super(SqueezeExcitation, self).__init__()
+#         self.in_channels = in_channels
+#         self.reduction = reduction
+#         self.fc1 = nn.Conv2d(in_channels, in_channels // reduction, kernel_size=1)
+#         self.fc2 = nn.Conv2d(in_channels // reduction, in_channels, kernel_size=1)
+
+#     def forward(self, x):
+#         # Verify the input tensor dimensions
+#         if isinstance(x, list):
+#             x = x[0]
+#         assert isinstance(x, torch.Tensor) and x.dim() == 4, "Input tensor must be 4D"
+        
+#         # Adjust the number of input channels for fc1 dynamically
+#         batch_size, in_channels, _, _ = x.shape
+#         if in_channels != self.in_channels:
+#             self.fc1 = nn.Conv2d(in_channels, in_channels // self.reduction, kernel_size=1)
+#             self.fc2 = nn.Conv2d(in_channels // self.reduction, in_channels, kernel_size=1)
+#             self.in_channels = in_channels
+
+#         scale = torch.mean(x, dim=(2, 3), keepdim=True)  # Use dim keyword argument
+#         scale = torch.relu(self.fc1(scale))
+#         scale = torch.sigmoid(self.fc2(scale))
+#         return x * scale
+
+
 class DWConv(Conv):
     # Depth-wise convolution
     def __init__(self, c1, c2, k=1, s=1, d=1, act=True):
@@ -274,6 +301,82 @@ class MultiStreamC3(nn.Module):
         assert len(x) == len(self.c3_layers), 'The number of input data stream does not match the predefined settings.'
         return [_layer(_x) for _x, _layer in zip(x, self.c3_layers)]
 
+
+class SqueezeExcitation(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(SqueezeExcitation, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Conv2d(in_channels, in_channels // reduction, kernel_size=1)
+        self.fc2 = nn.Conv2d(in_channels // reduction, in_channels, kernel_size=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x)
+        y = self.fc1(y)
+        y = self.relu(y)
+        y = self.fc2(y)
+        y = self.sigmoid(y)
+        # y = y.expand_as(x)
+        print(f"x size: {x.size()}, y size: {y.size()}")
+        return x * y.expand_as(x)
+
+
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, ratio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        
+        self.fc1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+        
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
+        out = avg_out + max_out
+        return self.sigmoid(out)
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        
+        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv1(x)
+        return self.sigmoid(x)
+    
+    
+class CBAM(nn.Module):
+    def __init__(self, in_planes, ratio=16, kernel_size=7):
+        super(CBAM, self).__init__()
+        self.ca = ChannelAttention(in_planes, ratio)
+        self.sa = SpatialAttention(kernel_size)
+
+    def forward(self, x):
+        x = x * self.ca(x)
+        x = x * self.sa(x)
+        return x
+
+
+class MultiStreamCBAM(nn.Module):
+    def __init__(self, in_planes, ratio=16, kernel_size=7, num_streams=2):
+        super(MultiStreamCBAM, self).__init__()
+        self.cbam_layers = nn.ModuleList([CBAM(in_planes, ratio, kernel_size) for _ in range(num_streams)])
+
+    def forward(self, x):
+        assert len(x) == len(self.cbam_layers), 'The number of input data stream does not match the predefined settings.'
+        return [cbam(_x) for _x, cbam in zip(x, self.cbam_layers)]
+    
 
 class C3x(C3):
     # C3 module with cross-convolutions
@@ -469,6 +572,8 @@ class Concat(nn.Module):
         """Concatenates a list of tensors along a specified dimension; `x` is a list of tensors, `dimension` is an
         int.
         """
+        sizes = [tensor.shape for tensor in x]
+        # print(f"Tensor sizes before concatenation: {sizes}")
         return torch.cat(x, self.d)
 
 
