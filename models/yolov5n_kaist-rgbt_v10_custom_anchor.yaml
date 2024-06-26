@@ -6,9 +6,15 @@ depth_multiple: 0.33 # model depth multiple
 width_multiple: 0.25 # layer channel multiple
 
 anchors:
-  - [10, 13, 16, 30, 33, 23] # P3/8
-  - [30, 61, 62, 45, 59, 119] # P4/16
-  - [116, 90, 156, 198, 373, 326] # P5/32
+  - [10, 24, 16, 35, 33, 68] # P3/8
+  - [30, 61, 62, 137, 59, 119] # P4/16
+  - [116, 290, 156, 215, 373, 536] # P5/32
+
+# # anchors for pedestrian
+# anchors:
+#   - [12, 16, 19, 36, 40, 28]  # P3/8
+#   - [36, 75, 76, 55, 72, 146] # P4/16
+#   - [142, 110, 192, 243, 459, 401] # P5/32
 
 # YOLOv5 v6.0 backbone
 backbone:
