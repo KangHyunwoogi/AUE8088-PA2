@@ -134,7 +134,7 @@ def train(hyp, opt, device, callbacks):
     # Config
     init_seeds(opt.seed, deterministic=True)
     data_dict = data_dict or check_dataset(data)  # check if None
-    train_path, val_path = data_dict["train"], data_dict["val"]
+    train_path, val_path, test_path = data_dict["train"], data_dict["val"], data_dict["test"]
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
     names = {0: data_dict["names"][0]} if single_cls and len(data_dict["names"]) != 1 else data_dict["names"]  # class names
 
@@ -217,6 +217,22 @@ def train(hyp, opt, device, callbacks):
         workers=workers,
         pad=0.5,
         prefix=colorstr("val: "),
+        rgbt_input=opt.rgbt,
+    )[0]
+    
+    test_loader = create_dataloader(
+        test_path,
+        imgsz,
+        batch_size * 2, # batch size
+        gs,
+        single_cls,
+        hyp=hyp,
+        cache=None if noval else opt.cache,
+        rect=False,     # Should be set to False for validation, otherwise it will break evaluation pipeline
+        rank=-1,
+        workers=workers,
+        pad=0.5,
+        prefix=colorstr("test: "),
         rgbt_input=opt.rgbt,
     )[0]
 
@@ -343,6 +359,22 @@ def train(hyp, opt, device, callbacks):
                 compute_loss=compute_loss,
                 epoch=epoch,
             )
+            test_results, maps, _ = validate.run(
+                data_dict,
+                batch_size=batch_size * 2,
+                imgsz=imgsz,
+                task="test",
+                half=amp,
+                model=ema.ema,
+                single_cls=single_cls,
+                save_json=True,
+                dataloader=test_loader,
+                save_dir=save_dir,
+                plots=True,
+                callbacks=callbacks,
+                compute_loss=compute_loss,
+                epoch=epoch,
+            )
 
         # Update best mAP
         fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -405,7 +437,6 @@ def train(hyp, opt, device, callbacks):
                 )  # val best model with plots
                 if is_coco:
                     callbacks.run("on_fit_epoch_end", list(mloss) + list(results) + lr, epoch, best_fitness, fi)
-
     callbacks.run("on_train_end", last, best, epoch, results)
 
     torch.cuda.empty_cache()
@@ -479,6 +510,9 @@ def main(opt, callbacks=Callbacks()):
         str(opt.weights),
         str(opt.project),
     )  # checks
+    
+    # print("opt.hyp")
+    # print(opt.hyp)
     assert len(opt.cfg) or len(opt.weights), "either --cfg or --weights must be specified"
     if opt.name == "cfg":
         opt.name = Path(opt.cfg).stem  # use model.yaml as name
